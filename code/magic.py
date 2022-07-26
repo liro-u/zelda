@@ -1,0 +1,44 @@
+import pygame
+from settings import *
+from random import randint
+
+class MagicPlayer:
+  def __init__(self,animation_player):
+    self.animation_player = animation_player
+    self.import_magic_sounds()
+  
+  def import_magic_sounds(self):
+    self.sounds = {}
+    for magic_name in list(magic_data.keys()):
+      self.sounds[magic_name] = pygame.mixer.Sound(magic_data[magic_name]['sound'])
+
+  def heal(self,player,strength,cost,groups):
+    if player.energy >= cost and player.health < player.stats['health']:
+      self.sounds['heal'].play()
+      player.health += strength
+      player.energy -= cost
+      if player.health >= player.stats['health']:
+        player.health = player.stats['health']
+      self.animation_player.create_particles('aura',player.rect.center,groups)
+      self.animation_player.create_particles('heal',player.rect.center + pygame.math.Vector2(0,-60),groups)
+
+  def flame(self,player,cost,groups):
+    if player.energy >= cost:
+      self.sounds['flame'].play()
+      player.energy -= cost
+
+      if player.status.split('_')[0] == 'right':
+        direction = pygame.math.Vector2(1,0)
+      elif player.status.split('_')[0] == 'left':
+        direction = pygame.math.Vector2(-1,0)
+      elif player.status.split('_')[0] == 'up':
+        direction = pygame.math.Vector2(0,-1)
+      else:
+        direction = pygame.math.Vector2(0,1)
+      
+      for i in range(1,6):
+        random_offset = pygame.math.Vector2(randint(-TILESIZE//3,TILESIZE//3),randint(-TILESIZE//3,TILESIZE//3))
+        offset = (direction * i) * TILESIZE
+        pos = player.rect.center + offset + random_offset
+        self.animation_player.create_particles('flame',pos,groups)
+    

@@ -49,6 +49,15 @@ class UI:
     self.display_surface.blit(text_surf,text_rect)
     pygame.draw.rect(self.display_surface,UI_BORDER_COLOR,text_rect.inflate(20,20),3)
   
+  def show_game_over(self):
+    text_surf = self.font.render('Game Over...',False,TEXT_COLOR)
+    x = self.display_surface.get_size()[0] // 2
+    y = self.display_surface.get_size()[1] // 2
+    text_rect = text_surf.get_rect(center = (x,y))
+    pygame.draw.rect(self.display_surface,UI_BG_COLOR,text_rect.inflate(20,20))
+    self.display_surface.blit(text_surf,text_rect)
+    pygame.draw.rect(self.display_surface,UI_BORDER_COLOR,text_rect.inflate(20,20),3)
+
   def selection_box(self,left,top,has_switched):
     bg_rect = pygame.Rect(left,top,ITEM_BOX_SIZE,ITEM_BOX_SIZE)
     pygame.draw.rect(self.display_surface,UI_BG_COLOR,bg_rect)
@@ -74,7 +83,11 @@ class UI:
     self.show_bar(player.health,player.stats['health'],self.health_bar_rect,HEALTH_COLOR)
     self.show_bar(player.energy,player.stats['energy'],self.energy_bar_rect,ENERGY_COLOR)
 
-    self.show_exp(player.exp)
-
     self.weapon_overlay(player.weapon_index,not player.can_switch_weapon) # weapon
     self.magic_overlay(player.magic_index,not player.can_switch_magic) # magic
+  
+  def display_exp(self,player):
+    self.show_exp(player.exp)
+  
+  def display_game_over(self):
+    self.show_game_over()

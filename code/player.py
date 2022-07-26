@@ -1,27 +1,25 @@
-from turtle import right
-from numpy import character
 import pygame
 from settings import *
 from support import import_folder
+from entity import Entity
+from random import randint
 
-class Player(pygame.sprite.Sprite):
-  def __init__(self,pos,groups,obstacle_sprites,create_attack,destroy_attack,create_magic,destroy_magic):
+class Player(Entity):
+  def __init__(self,pos,groups,obstacle_sprites,create_attack,destroy_attack,create_magic,trigger_death_particles,activate_player_death):
     super().__init__(groups)
-    self.image = pygame.image.load('../graphics/test/player.png').convert_alpha()
+    self.image = pygame.image.load('graphics/test/player.png').convert_alpha()
     self.rect = self.image.get_rect(topleft = pos)
-    self.hitbox = self.rect.inflate(0,-26)
+    self.hitbox = self.rect.inflate(-6,HITBOX_OFFSET['player'])
 
     # graphics setup
     self.import_player_assets()
     self.status = 'down'
-    self.frame_index = 0
-    self.animation_speed = 0.15
 
     # movement
-    self.direction = pygame.math.Vector2()
     self.attacking = False
-    self.attack_cooldown = 400
     self.attack_time = None
+    self.making_magic = False
+    self.magic_time = None
 
     self.obstacle_sprites = obstacle_sprites
     
@@ -38,21 +36,35 @@ class Player(pygame.sprite.Sprite):
 
     # magic
     self.create_magic = create_magic
-    self.destroy_magic = destroy_magic
     self.magic_index = 0
     self.magic = list(magic_data.keys())[self.magic_index]
     self.can_switch_magic = True
     self.magic_switch_time = None
 
     # stats
+    self.is_alive = True
     self.stats = {'health':100,'energy':60,'attack':10,'magic':4,'speed':5}
+    self.max_stats = {'health':300,'energy':140,'attack':20,'magic':10,'speed':10}
+    self.upgrade_cost = {'health':100,'energy':100,'attack':100,'magic':100,'speed':100}
     self.health = self.stats['health']
     self.energy = self.stats['energy']
-    self.exp = 123
-    self.speed = self.stats['speed']
+    self.exp = 0
+    self.trigger_death_particles = trigger_death_particles
+    self.activate_player_death = activate_player_death
+
+    # damage timer
+    self.vulnerable = True
+    self.hurt_time = None
+    self.invulnerability_duration = 500
+
+    # import a sound
+    self.weapon_attack_sound = pygame.mixer.Sound('audio/sword.wav')
+    self.death_sound = pygame.mixer.Sound('audio/death.wav')
+    self.weapon_attack_sound.set_volume(0.2)
+    self.weapon_attack_sound.set_volume(0.3)
 
   def import_player_assets(self):
-    character_path = '../graphics/player/'
+    character_path = 'graphics/player/'
     self.animations = {
       'up':[],"down":[],'left':[],'right':[],
       'up_idle':[],"down_idle":[],'left_idle':[],'right_idle':[],
@@ -70,7 +82,7 @@ class Player(pygame.sprite.Sprite):
     return False
 
   def input(self):
-    if not self.attacking:
+    if not self.attacking and not self.making_magic and self.is_alive:
       keys = pygame.key.get_pressed()
 
       # movement input
@@ -97,6 +109,7 @@ class Player(pygame.sprite.Sprite):
         self.attacking = True
         self.attack_time = pygame.time.get_ticks()
         self.create_attack()
+        self.weapon_attack_sound.play()
 
       if self.is_action_pressed(Action.SWITCH_WEAPON,keys) and self.can_switch_weapon:
         self.can_switch_weapon = False
@@ -109,8 +122,8 @@ class Player(pygame.sprite.Sprite):
       
       # magic input
       if self.is_action_pressed(Action.MAGIC,keys):
-        self.attacking = True
-        self.attack_time = pygame.time.get_ticks()
+        self.making_magic = True
+        self.magic_time = pygame.time.get_ticks()
         style = self.magic
         strength = list(magic_data.values())[self.magic_index]['strength'] + self.stats['magic']
         cost = list(magic_data.values())[self.magic_index]['cost']
@@ -144,58 +157,79 @@ class Player(pygame.sprite.Sprite):
     else:
       if 'attack' in self.status:
         self.status = self.status.replace('_attack','')
-    
-  def move(self,speed):
-    if self.direction.magnitude() != 0:
-      self.direction = self.direction.normalize()
-
-    self.hitbox.x += self.direction.x * speed
-    self.collision('horizontal')
-    self.hitbox.y += self.direction.y * speed
-    self.collision('vertical')
-    self.rect.center = self.hitbox.center
-
-  def collision(self,direction):
-    if direction == 'horizontal':
-      for sprite in self.obstacle_sprites:
-        if sprite.hitbox.colliderect(self.hitbox):
-          if self.direction.x > 0: # moving right
-            self.hitbox.right = sprite.hitbox.left
-          if self.direction.x < 0: # moving left
-            self.hitbox.left = sprite.hitbox.right
-    
-    if direction == 'vertical':
-      for sprite in self.obstacle_sprites:
-        if sprite.hitbox.colliderect(self.hitbox):
-          if self.direction.y > 0: # moving down
-            self.hitbox.bottom = sprite.hitbox.top
-          if self.direction.y < 0: # moving top
-            self.hitbox.top = sprite.hitbox.bottom
 
   def cooldowns(self):
     current_time = pygame.time.get_ticks()
     if self.attacking:
-      if current_time - self.attack_time >= self.attack_cooldown:
+      if current_time - self.attack_time >= weapon_data[self.weapon]['cooldown']:
         self.attacking = False
         self.destroy_attack()
+    if self.making_magic:
+      if current_time - self.magic_time >= magic_data[self.magic]['cooldown']:
+        self.making_magic = False
     if not self.can_switch_weapon:
       if current_time - self.weapon_switch_time >= self.switch_duration_cooldown:
         self.can_switch_weapon = True
     if not self.can_switch_magic:
       if current_time - self.magic_switch_time >= self.switch_duration_cooldown:
         self.can_switch_magic = True
+    if not self.vulnerable:
+      if current_time - self.hurt_time >= self.invulnerability_duration:
+        self.vulnerable = True
 
   def animate(self):
-    animation = self.animations[self.status]
-    self.frame_index += self.animation_speed
-    if self.frame_index >= len(animation):
-      self.frame_index = 0
-    self.image = animation[int(self.frame_index)]
-    self.rect = self.image.get_rect(center = self.hitbox.center)
+    if self.is_alive:
+      animation = self.animations[self.status]
+      self.frame_index += self.animation_speed
+      if self.frame_index >= len(animation):
+        self.frame_index = 0
+      self.image = animation[int(self.frame_index)]
+      self.rect = self.image.get_rect(center = self.hitbox.center)
+      
+      if not self.vulnerable:
+        alpha = self.wave_value()
+        self.image.set_alpha(alpha)
+      else:
+        self.image.set_alpha(255)
+
+  def get_full_weapon_damage(self):
+    base_damage = self.stats['attack']
+    weapon_damage = weapon_data[self.weapon]['damage']
+    return base_damage + weapon_damage
+
+  def get_full_magic_damage(self):
+    base_damage = self.stats['magic']
+    spell_damage = magic_data[self.magic]['strength']
+    return base_damage + spell_damage
+
+  def get_value_by_index(self,index):
+    return list(self.stats.values())[index]
+
+  def get_cost_by_index(self,index):
+    return list(self.upgrade_cost.values())[index]
+
+  def energy_recovery(self):
+    if self.energy < self.stats['energy']:
+      self.energy += 0.01 * self.stats['magic']
+    else:
+      self.energy = self.stats['energy']
+
+  def check_death(self):
+    if self.health <= 0 and self.is_alive:
+      self.activate_player_death()
+      self.death_sound.play()
+      for i in range(4):
+        random_offset = pygame.math.Vector2(randint(-TILESIZE//3,TILESIZE//3),randint(-TILESIZE//3,TILESIZE//3))
+        self.trigger_death_particles(self.rect.center - random_offset,'player')
+      self.is_alive = False
+      self.image.set_alpha(0)
+      self.direction = pygame.math.Vector2()
 
   def update(self):
     self.input()
     self.cooldowns()
     self.get_status()
     self.animate()
-    self.move(self.speed)
+    self.move(self.stats['speed'])
+    self.energy_recovery()
+    self.check_death()
